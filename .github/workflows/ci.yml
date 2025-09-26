@@ -13,6 +13,8 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+      - name: Check Code Formatting
+        run: ./mvnw -B spotless:check
       - name: Build
         run: ./mvnw -B -DskipTests package
       - name: Test

@@ -53,6 +53,52 @@ You can then execute your native executable with: `./target/aurenworks-api-1.0.0
 
 If you want to learn more about building native executables, please consult <https://quarkus.io/guides/maven-tooling>.
 
+## Code Formatting with Spotless
+
+This project uses [Spotless](https://github.com/diffplug/spotless) for code formatting and style enforcement. Spotless is configured to use the Eclipse formatter with 2-space indentation as specified in the project rules.
+
+### Running Spotless
+
+To check if your code is properly formatted:
+
+```shell script
+./mvnw spotless:check
+```
+
+To automatically format your code:
+
+```shell script
+./mvnw spotless:apply
+```
+
+### Spotless Configuration
+
+- **Java files**: Formatted using Eclipse formatter with `eclipse-formatter.xml`
+- **XML files**: Formatted using Eclipse WTP XML formatter
+- **Import management**: Unused imports are automatically removed
+- **Annotations**: Properly formatted
+- **Line endings**: UNIX style (LF)
+- **Encoding**: UTF-8
+
+### Pre-commit Hook (Optional)
+
+To automatically format code before commits, you can set up a pre-commit hook:
+
+```shell script
+# Create the pre-commit hook
+echo '#!/bin/sh
+./mvnw spotless:apply
+git add .
+' > .git/hooks/pre-commit
+
+# Make it executable
+chmod +x .git/hooks/pre-commit
+```
+
+### CI Integration
+
+Spotless is configured to run during the `apply` phase of the Maven build, ensuring all code is properly formatted before compilation.
+
 ## Provided Code
 
 ### REST

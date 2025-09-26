@@ -1,103 +1,139 @@
 # Cursor Rules for aurenworks-api
 
 ## Project Overview
-This is a Quarkus-based Java 17 backend for aurenworks-api, a Control-plane API (REST/GraphQL) for Auren Works, a citizen developer platform with GitHub integration, PostgreSQL persistence, and Kubernetes deployment.
+Quarkus-based Java **21** backend for `aurenworks-api` (control-plane REST/GraphQL) in the AurenWorks platform.
+PostgreSQL persistence, Git-backed YAML storage, GitHub integration, Docker/Kubernetes deployment.
+
+---
 
 ## Core Technical Rules (from AGENTS.md)
 
 ### Security & Compliance (NON-NEGOTIABLE)
-- **NEVER store raw secrets** in source control, logs, or databases. Store only **references** like `k8s:secret/<name>#<key>` or `vault:kv/...`
-- **No plaintext secret echo** in logs, exceptions, or tests. Mask with `****`
-- **SSH keys**: API accepts uploaded private keys only to immediately store in external secret store (Kubernetes Secret or Vault)
-- **PII minimization**: Store minimum user info; never log user emails or tokens
-- **Dependency hygiene**: Pin versions; avoid unmaintained libraries
+- **Never store raw secrets** in source, logs, or DB. Only store references like `k8s:secret/<name>#<key>` or `vault:kv/...`.
+- **Mask secrets** in logs/exceptions/tests (`****`). Do not echo env vars in logs.
+- **SSH keys**: if uploaded, immediately hand off to external secret store (Kubernetes Secret or Vault); never persist raw key.
+- **PII minimization**: store minimal user info; never log emails/tokens.
+- **Dependency hygiene**: use Quarkus BOM pinning; no dynamic/lax versions (`+`, `LATEST`).
+- **Transport & CORS**: only enable CORS for defined origins; HTTPS/TLS mandatory off-cluster.
 
 ### Architecture
-- **Backend**: Quarkus REST with layered architecture: `api → service → repo → db`
-- **Persistence**: PostgreSQL with Flyway migrations; JSONB for flexible preferences
-- **Secrets**: Use `SecretResolver` SPI (Kubernetes + Vault). Code consumes only secret values returned at runtime
-- **Git**: Prefer GitHub REST API or App installation tokens. Allow SSH transport when user has uploaded SSH key
+- **Layers**: `api → service → repo → db`.
+- **Persistence**: PostgreSQL + Flyway; JSONB for flexible prefs.
+- **Secrets**: `SecretResolver` SPI (Kubernetes + Vault) used by services; code consumes decrypted values only at runtime.
+- **Git**: Prefer GitHub REST/App tokens; allow SSH transport via uploaded key reference.
 
 ### Code Standards
-- **Java files**: Use 2 spaces for indentation throughout all `.java` files. No tabs allowed
-- **Formatting**: Follow the project's eclipse-formatter.xml configuration
-- **Error handling**: Use JSON error envelope + request ID pattern
+- **Java**: **2 spaces** indent for `.java` (no tabs).
+- **Formatting**: enforce `eclipse-formatter.xml`; verify in CI.
+- **Spotless**: Use `./mvnw spotless:apply` before commits; CI enforces `spotless:check`.
+- **Logging**: use Quarkus logger; structured JSON when possible; never `System.out.println`.
+
+### Error Handling
+- All API errors return a JSON envelope:
+  ```json
+  { "error": { "code": "string", "message": "human message", "details": {}, "requestId": "uuid" } }
+  ```
+- Map exceptions with `ExceptionMapper` and always attach/request a `requestId`.
+
+---
 
 ## Git-based YAML Storage (CRITICAL)
 
-### Templates and Outcomes Storage
-- **Templates**: Store Git repository references in database (URL, branch, SSH key name, YAML path)
-- **Outcomes**: Stored in Git repositories as YAML files, NOT in database
-- **YAML Structure**: Follow the specification with phase objects containing name, track, product, environment
+### Layout & Strategy
+- **Templates**: store **references** (git URL, branch, SSH key ref, YAML path) in DB; **not** template content.
+- **Outcomes**: stored **in Git** as YAML, not in DB.
+- **Repo layout** (example):
+  ```
+  /outcomes/<workspace>/<project>/<release>/<name>.yaml
+  /templates/<category>/<template-name>/<version>.yaml
+  ```
+- **Branching**: write changes on a short-lived branch `aw/outcome-<id>-<timestamp>`, open PR, merge after checks.
+- **Concurrency**: serialize writes by outcome id; reject concurrent edits or use PR rebase.
+- **Services**:
+  - `GitYamlService` → read/write YAML to repos (idempotent).
+  - `SshGitService` → clone/commit/push via SSH key ref.
 
-### When Working with Models, DTOs, or APIs
-- **DO NOT create database repositories** for outcomes or templates data
-- **DO expect backend details to be stored in Git repositories** as YAML files
-- **DO use GitYamlService** for reading/writing outcomes to Git repositories
-- **DO use SshGitService** for Git operations (clone, commit, push)
-- **DO follow the YAML structure** specified in the requirements
-
-### YAML Structure Example
+### YAML Structure (canonical)
 ```yaml
 outcomes:
   - outcome:
       phase:
-        name: phase name
-        track: track name
-        product: product name
-        environment: environment name
-      prefix: some prefix description
-      description: the long description of an outcome here
-      notes: some scoping notes here
+        name: "<phase>"
+        track: "<track>"
+        product: "<product>"
+        environment: "<env>"
+      prefix: "<short summary>"
+      description: "<long description>"
+      notes: "<scoping notes>"
 ```
 
 ### Database Schema
-- **Templates table**: Contains Git repository references, not the actual template data
-- **No outcomes table**: Outcomes are stored in Git repositories
-- **Credential references**: Store SSH key references for Git operations
+- **templates**: git URL/branch/path, ssh_key_ref; timestamps; owner/workspace.
+- **No outcomes table** (only references if needed); outcomes live in Git.
+- **Credential refs** only; never persist decrypted secrets.
+
+---
 
 ## Collaboration Rules
 
 ### Testing Approach
-- **ALWAYS include tests** with any new features
-- **Unit tests**: Write comprehensive unit tests for service layer and business logic
-- **Integration tests**: Include resource/integration tests for API endpoints
-- **Test coverage**: Aim for high test coverage, especially for security-critical code
-- **Test data**: Use test containers for database tests; never use production data
-- **Test execution**: All tests in this project should run through the command `./mvnw clean test`
-- **Evaluation**: Running tests is sufficient for code evaluation; the user will handle application runtime and integration testing
+- **Always include tests** with new features.
+- **Unit**: service/business logic.
+- **Integration**: resource tests with Quarkus JUnit 5.
+- **Database**: Testcontainers PostgreSQL (no external network/services).
+- **Command**: `./mvnw clean test` (CI must pass).
+- **Data**: synthetic fixtures only; never prod data.
 
-### Code Generation Guidelines
-- **Explain reasoning**: When making architectural decisions, explain your rationale
-- **Security first**: Always prioritize security in code generation
-- **Documentation**: Include clear comments for complex logic, especially security-related code
-- **Error handling**: Implement proper error handling and validation
-- **API design**: Follow RESTful principles and existing API patterns
-
-### Communication Style
-- **Be thorough**: Provide detailed explanations for complex changes
-- **Security focus**: Always highlight security implications of changes
-- **Testing emphasis**: Explicitly mention testing approach for new features
-- **Code review**: Suggest improvements and explain trade-offs
+### Code Generation Guidelines (for AI agents & humans)
+- Explain rationale for architectural choices in PR body.
+- Security first: validate inputs, sanitize outputs, limit payload size.
+- Document complex logic and all security-sensitive code.
+- Follow REST patterns and existing resource naming; use DTOs not entities in API.
+- **Format code**: Always run `./mvnw spotless:apply` after generating/editing Java files.
 
 ### File Organization
-- Follow existing package structure: `api`, `service`, `repo`, `model`, `secrets`
-- Place tests in corresponding test packages
-- Use meaningful class and method names
-- Follow Java naming conventions
+- Packages: `api`, `service`, `repo`, `model`, `secrets`, `git`.
+- Tests mirror source packages.
+- Meaningful class/method names; Java conventions.
+
+---
+
+## API & Platform Requirements
+
+### HTTP & Limits
+- Default JSON; validate request bodies; enforce size limits (e.g., 1MB) and timeouts.
+- Use 429 for rate limiting; 400/422 for validation; 401/403 for auth/perm issues.
+
+### Observability
+- Structured logging (include `requestId`, user/workspace ids where safe).
+- Health: SmallRye `/q/health` + custom `/healthz`.
+- Expose metrics via Micrometer/OpenTelemetry (future).
+
+### Dependencies
+- Manage via Quarkus BOM; pin versions. No SNAPSHOTs for release branches.
+
+### Environments
+- Profiles: `dev`, `test`, `prod`; keep secrets external.
+- Config via `application-*.properties`; never commit secrets.
+
+---
 
 ## When Implementing New Features
-1. **Security review**: Ensure no secrets are persisted inappropriately
-2. **Testing**: Include unit and integration tests
-3. **Documentation**: Update relevant documentation
-4. **Migration**: Include Flyway migrations if schema changes needed
-5. **API consistency**: Follow existing API patterns and error handling
-6. **Git-based storage**: Remember that outcomes and templates are stored in Git, not database
+1. **Security review**: no secret/PII leaks; input validation done.
+2. **Tests**: unit + integration + (if DB) Testcontainers.
+3. **Docs**: update `AGENTS.md`, API docs/OpenAPI, README.
+4. **Migrations**: add Flyway scripts if schema changes.
+5. **Consistency**: follow error envelope/logging conventions.
+6. **Git-based storage**: outcomes/templates live in Git; DB stores refs only.
+7. **Formatting**: run `./mvnw spotless:apply` before committing.
+
+---
 
 ## Reference Files
-- `AGENTS.md` - Detailed technical specifications
-- `pom.xml` - Dependencies and build configuration
-- `application.properties` - Application configuration
-- `eclipse-formatter.xml` - Code formatting rules
+- `AGENTS.md` — Roles/instructions for AI/code agents.
+- `pom.xml` — Build & dependency management (Quarkus BOM).
+- `application*.properties` — Config per profile.
+- `eclipse-formatter.xml` — Java formatting rules (2 spaces).
+- `spotless.properties` — Spotless configuration for code formatting.
 
-Remember: Security, testing, and Git-based YAML storage are non-negotiable. Always prioritize these aspects in any code generation or modification.
+**Remember**: Security, tests, and Git-based YAML storage are non-negotiable.
