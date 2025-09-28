@@ -1,0 +1,83 @@
+### Records API Examples
+### These examples demonstrate the Records endpoints functionality
+
+### 1. Create a new record
+POST http://localhost:8080/records
+Content-Type: application/json
+
+{
+  "componentId": "user",
+  "values": {
+    "name": "John Doe",
+    "age": 30,
+    "active": true
+  },
+  "metadata": {
+    "source": "api-test"
+  }
+}
+
+### 2. Create another record with different data
+POST http://localhost:8080/records
+Content-Type: application/json
+
+{
+  "componentId": "user",
+  "values": {
+    "name": "Jane Smith",
+    "age": 25,
+    "active": false
+  },
+  "metadata": {
+    "source": "api-test"
+  }
+}
+
+### 3. Get all records (paginated)
+GET http://localhost:8080/records
+
+### 4. Get records with pagination
+GET http://localhost:8080/records?page=0&size=5
+
+### 5. Get records filtered by componentId
+GET http://localhost:8080/records?componentId=user
+
+### 6. Get records with sorting
+GET http://localhost:8080/records?sortBy=name&sortOrder=asc
+
+### 7. Get a specific record by ID (replace {id} with actual record ID)
+GET http://localhost:8080/records/{id}
+
+### 8. Test validation - missing required field
+POST http://localhost:8080/records
+Content-Type: application/json
+
+{
+  "componentId": "user",
+  "values": {
+    "age": 30
+  }
+}
+
+### 9. Test validation - invalid field type
+POST http://localhost:8080/records
+Content-Type: application/json
+
+{
+  "componentId": "user",
+  "values": {
+    "name": "John Doe",
+    "age": "not-a-number"
+  }
+}
+
+### 10. Test validation - invalid component
+POST http://localhost:8080/records
+Content-Type: application/json
+
+{
+  "componentId": "nonexistent",
+  "values": {
+    "name": "John Doe"
+  }
+}
