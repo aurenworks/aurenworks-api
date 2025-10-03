@@ -1,0 +1,103 @@
+### Components API Examples
+### These examples demonstrate the Components endpoints functionality
+
+### 1. Get a specific component by ID
+GET http://localhost:8080/components/user
+
+### 2. Get component with ETag header (for optimistic concurrency)
+GET http://localhost:8080/components/user
+# Note: The response will include an ETag header that can be used for updates
+
+### 3. Update component with correct ETag
+PUT http://localhost:8080/components/user
+Content-Type: application/json
+If-Match: <ETag-from-previous-GET>
+
+{
+  "name": "Updated User",
+  "description": "Updated user information component",
+  "fields": [
+    {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "constraints": {"maxLength": 200}
+    },
+    {
+      "name": "email",
+      "type": "string",
+      "required": true,
+      "constraints": {"maxLength": 255}
+    }
+  ],
+  "metadata": {"version": "2.0"}
+}
+
+### 4. Update component with wrong ETag (should return 409 Conflict)
+PUT http://localhost:8080/components/user
+Content-Type: application/json
+If-Match: wrong-etag
+
+{
+  "name": "Updated User",
+  "description": "Updated description",
+  "fields": [
+    {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "constraints": {}
+    }
+  ],
+  "metadata": {}
+}
+
+### 5. Test validation - empty fields list
+PUT http://localhost:8080/components/user
+Content-Type: application/json
+
+{
+  "name": "Updated User",
+  "description": "Updated description",
+  "fields": [],
+  "metadata": {}
+}
+
+### 6. Test validation - empty field name
+PUT http://localhost:8080/components/user
+Content-Type: application/json
+
+{
+  "name": "Updated User",
+  "description": "Updated description",
+  "fields": [
+    {
+      "name": "",
+      "type": "string",
+      "required": true,
+      "constraints": {}
+    }
+  ],
+  "metadata": {}
+}
+
+### 7. Test validation - empty field type
+PUT http://localhost:8080/components/user
+Content-Type: application/json
+
+{
+  "name": "Updated User",
+  "description": "Updated description",
+  "fields": [
+    {
+      "name": "name",
+      "type": "",
+      "required": true,
+      "constraints": {}
+    }
+  ],
+  "metadata": {}
+}
+
+### 8. Get non-existent component (should return 404)
+GET http://localhost:8080/components/nonexistent
