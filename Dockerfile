@@ -8,6 +8,6 @@ RUN ./mvnw -q -DskipTests package
 FROM eclipse-temurin:21-jre
 WORKDIR /work
 COPY --from=build /app/target/*-runner.jar /work/app.jar
-EXPOSE 8080
+EXPOSE 3000
 ENV JAVA_OPTS=""
 CMD ["sh", "-c", "exec java $JAVA_OPTS -jar /work/app.jar"]
