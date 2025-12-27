@@ -4,10 +4,15 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import com.aurenworks.api.dto.ComponentResponse;
+import com.aurenworks.api.dto.ComponentsListResponse;
+import com.aurenworks.api.dto.CreateComponentRequest;
 import com.aurenworks.api.dto.UpdateComponentRequest;
 import com.aurenworks.model.Component;
 import com.aurenworks.model.Role;
@@ -19,6 +24,7 @@ public class ComponentService {
 
   // In-memory storage for demo purposes
   // In production, this would be replaced with database persistence
+  // Key format: projectId:componentId
   private final Map<String, ComponentData> components = new ConcurrentHashMap<>();
 
   public ComponentService() {
@@ -26,10 +32,86 @@ public class ComponentService {
     initializeSampleComponents();
   }
 
-  public ComponentResponse getComponent(String id, Role userRole) {
-    ComponentData componentData = components.get(id);
+  public ComponentsListResponse listComponents(String projectId, int page, int size, String sortBy, String sortOrder,
+      Role userRole) {
+    // Filter by projectId
+    List<ComponentData> filteredComponents = components.values().stream()
+        .filter(data -> data.projectId().equals(projectId)).collect(Collectors.toList());
+
+    // Apply sorting
+    if (sortBy != null && !sortBy.isEmpty()) {
+      filteredComponents.sort((c1, c2) -> {
+        Component comp1 = c1.component();
+        Component comp2 = c2.component();
+        Object v1 = getSortValue(comp1, sortBy);
+        Object v2 = getSortValue(comp2, sortBy);
+
+        if (v1 == null && v2 == null)
+          return 0;
+        if (v1 == null)
+          return "asc".equals(sortOrder) ? 1 : -1;
+        if (v2 == null)
+          return "asc".equals(sortOrder) ? -1 : 1;
+
+        int comparison = v1.toString().compareTo(v2.toString());
+        return "desc".equals(sortOrder) ? -comparison : comparison;
+      });
+    } else {
+      // Default sort by createdAt desc
+      filteredComponents.sort((c1, c2) -> c2.createdAt().compareTo(c1.createdAt()));
+    }
+
+    // Apply pagination
+    int total = filteredComponents.size();
+    int totalPages = (int) Math.ceil((double) total / size);
+    int startIndex = page * size;
+    int endIndex = Math.min(startIndex + size, total);
+
+    List<ComponentData> paginatedComponents = filteredComponents.subList(startIndex, endIndex);
+
+    List<ComponentResponse> componentResponses = paginatedComponents.stream().map(this::toComponentResponse)
+        .collect(Collectors.toList());
+
+    ComponentsListResponse.PaginationInfo pagination = new ComponentsListResponse.PaginationInfo(page, size, total,
+        totalPages, page < totalPages - 1, page > 0);
+
+    return new ComponentsListResponse(componentResponses, pagination);
+  }
+
+  public ComponentResponse createComponent(String projectId, CreateComponentRequest request, Role userRole) {
+    // Check write permissions
+    if (userRole == null || userRole == Role.VIEWER) {
+      throw new IllegalArgumentException("Insufficient permissions: VIEWER role cannot create components");
+    }
+
+    // Validate component schema
+    validateComponentSchema(request.fields());
+
+    // Generate component ID
+    String componentId = UUID.randomUUID().toString();
+    String key = projectId + ":" + componentId;
+
+    // Create component
+    Instant now = Instant.now();
+    Component component = new Component(componentId, request.name(), request.description(), request.fields(),
+        request.metadata());
+
+    String etag = generateETag(component, now);
+    ComponentData componentData = new ComponentData(projectId, component, now, now, "system", etag);
+
+    components.put(key, componentData);
+
+    // Log audit trail
+    logAuditEvent("COMPONENT_CREATED", componentId, projectId);
+
+    return toComponentResponse(componentData);
+  }
+
+  public ComponentResponse getComponent(String projectId, String componentId, Role userRole) {
+    String key = projectId + ":" + componentId;
+    ComponentData componentData = components.get(key);
     if (componentData == null) {
-      throw new IllegalArgumentException("Component not found: " + id);
+      throw new IllegalArgumentException("Component not found: " + componentId);
     }
 
     // Check read permissions
@@ -41,10 +123,12 @@ public class ComponentService {
     return toComponentResponse(componentData);
   }
 
-  public ComponentResponse updateComponent(String id, UpdateComponentRequest request, String ifMatch, Role userRole) {
-    ComponentData existingData = components.get(id);
+  public ComponentResponse updateComponent(String projectId, String componentId, UpdateComponentRequest request,
+      String ifMatch, Role userRole) {
+    String key = projectId + ":" + componentId;
+    ComponentData existingData = components.get(key);
     if (existingData == null) {
-      throw new IllegalArgumentException("Component not found: " + id);
+      throw new IllegalArgumentException("Component not found: " + componentId);
     }
 
     // Check write permissions
@@ -62,18 +146,37 @@ public class ComponentService {
 
     // Update component
     Instant now = Instant.now();
-    Component updatedComponent = new Component(id, request.name(), request.description(), request.fields(),
+    Component updatedComponent = new Component(componentId, request.name(), request.description(), request.fields(),
         request.metadata());
 
     String newEtag = generateETag(updatedComponent, now);
-    ComponentData updatedData = new ComponentData(updatedComponent, now, now, "system", newEtag);
+    ComponentData updatedData = new ComponentData(projectId, updatedComponent, existingData.createdAt(), now,
+        existingData.createdBy(), newEtag);
 
-    components.put(id, updatedData);
+    components.put(key, updatedData);
 
     // Log audit trail
-    logAuditEvent("COMPONENT_UPDATED", id);
+    logAuditEvent("COMPONENT_UPDATED", componentId, projectId);
 
     return toComponentResponse(updatedData);
+  }
+
+  public void deleteComponent(String projectId, String componentId, Role userRole) {
+    String key = projectId + ":" + componentId;
+    ComponentData componentData = components.get(key);
+    if (componentData == null) {
+      throw new IllegalArgumentException("Component not found: " + componentId);
+    }
+
+    // Check write permissions
+    if (userRole == null || userRole == Role.VIEWER) {
+      throw new IllegalArgumentException("Insufficient permissions: VIEWER role cannot delete components");
+    }
+
+    components.remove(key);
+
+    // Log audit trail
+    logAuditEvent("COMPONENT_DELETED", componentId, projectId);
   }
 
   private void validateComponentSchema(java.util.List<Component.ComponentField> fields) {
@@ -111,13 +214,24 @@ public class ComponentService {
     }
   }
 
-  private void logAuditEvent(String action, String componentId) {
+  private Object getSortValue(Component component, String sortBy) {
+    return switch (sortBy.toLowerCase()) {
+      case "name" -> component.name();
+      case "id" -> component.id();
+      case "description" -> component.description();
+      default -> null;
+    };
+  }
+
+  private void logAuditEvent(String action, String componentId, String projectId) {
     // Simple audit logging - in production this would go to a proper audit system
-    System.out.println(String.format("AUDIT: %s - componentId=%s, timestamp=%s", action, componentId, Instant.now()));
+    System.out.println(String.format("AUDIT: %s - componentId=%s, projectId=%s, timestamp=%s", action, componentId,
+        projectId, Instant.now()));
   }
 
   private void initializeSampleComponents() {
     // Sample component for testing
+    String projectId = "default-project";
     Component.ComponentField nameField = new Component.ComponentField("name", "string", true, Map.of("maxLength", 100));
     Component.ComponentField ageField = new Component.ComponentField("age", "number", false,
         Map.of("min", 0, "max", 150));
@@ -128,11 +242,11 @@ public class ComponentService {
 
     Instant now = Instant.now();
     String etag = generateETag(userComponent, now);
-    ComponentData componentData = new ComponentData(userComponent, now, now, "system", etag);
-    components.put("user", componentData);
+    ComponentData componentData = new ComponentData(projectId, userComponent, now, now, "system", etag);
+    components.put(projectId + ":user", componentData);
   }
 
-  private record ComponentData(Component component, Instant createdAt, Instant updatedAt, String createdBy,
-      String etag) {
+  private record ComponentData(String projectId, Component component, Instant createdAt, Instant updatedAt,
+      String createdBy, String etag) {
   }
 }
