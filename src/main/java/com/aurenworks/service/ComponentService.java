@@ -64,6 +64,15 @@ public class ComponentService {
     // Apply pagination
     int total = filteredComponents.size();
     int totalPages = (int) Math.ceil((double) total / size);
+
+    // Validate page is within bounds
+    // If totalPages is 0, only page 0 is valid (empty result)
+    // If totalPages > 0, page must be < totalPages
+    if ((totalPages == 0 && page > 0) || (totalPages > 0 && page >= totalPages)) {
+      throw new IllegalArgumentException(
+          String.format("Page %d is out of bounds. Total pages: %d (0-based indexing)", page, totalPages));
+    }
+
     int startIndex = page * size;
     int endIndex = Math.min(startIndex + size, total);
 

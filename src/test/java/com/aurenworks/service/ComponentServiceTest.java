@@ -43,6 +43,17 @@ class ComponentServiceTest {
   }
 
   @Test
+  void testListComponents_PageOutOfBounds() {
+    // Given
+    Role userRole = Role.VIEWER;
+
+    // When & Then - requesting a page that's out of bounds should throw IllegalArgumentException
+    IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+        () -> componentService.listComponents(PROJECT_ID, 999, 10, null, "asc", userRole));
+    assertTrue(exception.getMessage().contains("out of bounds"));
+  }
+
+  @Test
   void testCreateComponent_Success() {
     // Given
     Role userRole = Role.BUILDER;

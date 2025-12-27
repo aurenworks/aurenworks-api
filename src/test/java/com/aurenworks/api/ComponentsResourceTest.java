@@ -40,6 +40,14 @@ class ComponentsResourceTest {
   }
 
   @Test
+  void testListComponents_PageOutOfBounds() {
+    // Request a page that's way out of bounds
+    given().queryParam("page", 999).queryParam("size", 10).when().get("/projects/" + PROJECT_ID + "/components").then()
+        .statusCode(400).contentType(ContentType.JSON).body("error.code", equalTo("VALIDATION_ERROR"))
+        .body("error.message", containsString("out of bounds"));
+  }
+
+  @Test
   void testCreateComponent_Success() {
     String createRequest = """
         {
