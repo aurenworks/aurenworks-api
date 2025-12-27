@@ -35,6 +35,61 @@ If you want to build an _über-jar_, execute the following command:
 
 The application, packaged as an _über-jar_, is now runnable using `java -jar target/*-runner.jar`.
 
+## CORS Configuration
+
+The API supports Cross-Origin Resource Sharing (CORS) for browser-based clients like the AurenWorks Studio. CORS is configured per environment profile to ensure security compliance.
+
+### Security Policy
+
+**CORS is disabled by default** and only enabled in profiles where origins are explicitly defined. This follows the security rule: "only enable CORS for defined origins."
+
+### Development Configuration
+
+CORS is automatically configured for development with the studio development server:
+
+- **Allowed Origin**: `http://localhost:5173`
+- **Configuration**: `src/main/resources/application-dev.properties`
+
+When running in dev mode (`./mvnw quarkus:dev`), CORS is automatically enabled for the development studio.
+
+### Production Configuration
+
+**CORS must be explicitly configured for production deployments.** The production profile (`application-prod.properties`) has CORS disabled by default until the production studio domain is configured.
+
+To enable CORS in production:
+
+1. Edit `src/main/resources/application-prod.properties`
+2. Uncomment and configure the production studio domain:
+
+```properties
+# Production Profile Configuration
+# CORS: Allow studio production domain
+quarkus.http.cors.enabled=true
+quarkus.http.cors.origins=https://studio.aurenworks.com
+```
+
+**Important Security Notes:**
+- Only specify the exact production studio domain(s) - do not use wildcards
+- Use HTTPS for production origins
+- Multiple origins can be specified as a comma-separated list
+- CORS will remain disabled if `quarkus.http.cors.enabled=true` is not set, even if origins are defined
+
+### CORS Headers and Methods
+
+The following are configured globally (when CORS is enabled):
+
+- **Allowed Headers**: `Authorization`, `Content-Type`, `Accept`, `Origin`, `X-Requested-With`
+- **Allowed Methods**: `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `PATCH`
+- **Credentials**: Enabled (required for authentication headers)
+
+### Testing CORS
+
+Integration tests verify CORS functionality. Run the CORS tests with:
+
+```shell script
+./mvnw test -Dtest=CorsResourceTest
+```
+
 ## Creating a native executable
 
 You can create a native executable using:
